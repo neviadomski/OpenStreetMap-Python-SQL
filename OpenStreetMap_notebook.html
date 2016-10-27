@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head><meta charset="utf-8" />
-<title>openstreetmap notebook</title>
+<title>OpenStreetMap notebook</title>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.1.10/require.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
@@ -11780,402 +11780,34 @@ div#notebook {
 </div>
 <div class="inner_cell">
 <div class="text_cell_render border-box-sizing rendered_html">
-<p>In this section I want to solve typical problem of openstreen data.  That is street abbreviation inconsistency. I used regular expressions to catch this abbreviations and to build mapping for solving this problem.</p>
+<p>After downloading and auditing Pittsburgh area dataset I noticed some inconsistencies in representing data:</p>
+<p>1) Street names was inconsistent.<br>
+Abbreviations St -&gt; Street<br>
+Dots at the end St. -&gt; Street<br>
+Lowercase street -&gt; Street</p>
+<p>2) Zip codes had different formats.<br>
+5-4 digit format 15220-4152 -&gt; 15220<br>
+State abbreviation in zip code PA15220 -&gt; 15220</p>
+<p>3) Phone numbers had different formats.<br>
++4129999999 -&gt; 1-412-999-9999<br>
+1412-999-9999 -&gt; 1-412-999-9999<br>
+(412)999-9999 -&gt; 1-412-999-9999</p>
 
 </div>
 </div>
-</div>
-<div class="cell border-box-sizing code_cell rendered">
-<div class="input">
-<div class="prompt input_prompt">In&nbsp;[1]:</div>
-<div class="inner_cell">
-    <div class="input_area">
-<div class=" highlight hl-ipython2"><pre><span></span><span class="c1"># Importing needed libraries</span>
-<span class="kn">import</span> <span class="nn">xml.etree.cElementTree</span> <span class="kn">as</span> <span class="nn">ET</span>
-<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">defaultdict</span>
-<span class="kn">import</span> <span class="nn">re</span>
-<span class="kn">import</span> <span class="nn">pprint</span>
-<span class="kn">import</span> <span class="nn">csv</span>
-<span class="kn">import</span> <span class="nn">codecs</span>
-<span class="kn">import</span> <span class="nn">cerberus</span>
-<span class="kn">import</span> <span class="nn">schema</span>
-<span class="kn">import</span> <span class="nn">sqlite3</span>
-</pre></div>
-
-</div>
-</div>
-</div>
-
-</div>
-<div class="cell border-box-sizing code_cell rendered">
-<div class="input">
-<div class="prompt input_prompt">In&nbsp;[2]:</div>
-<div class="inner_cell">
-    <div class="input_area">
-<div class=" highlight hl-ipython2"><pre><span></span><span class="c1"># OSM file</span>
-<span class="n">osm_file</span> <span class="o">=</span> <span class="s2">&quot;pittsburgh_pennsylvania.osm&quot;</span>
-
-<span class="c1"># re function</span>
-<span class="n">street_type_re</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s1">r&#39;\b\S+\.?$&#39;</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">IGNORECASE</span><span class="p">)</span>
-
-<span class="c1"># Expected street types list</span>
-<span class="n">expected</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;Street&quot;</span><span class="p">,</span> <span class="s2">&quot;Avenue&quot;</span><span class="p">,</span> <span class="s2">&quot;Boulevard&quot;</span><span class="p">,</span> <span class="s2">&quot;Drive&quot;</span><span class="p">,</span> <span class="s2">&quot;Court&quot;</span><span class="p">,</span> <span class="s2">&quot;Place&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;Square&quot;</span><span class="p">,</span> <span class="s2">&quot;Lane&quot;</span><span class="p">,</span> <span class="s2">&quot;Road&quot;</span><span class="p">,</span> <span class="s2">&quot;Trail&quot;</span><span class="p">,</span> <span class="s2">&quot;Parkway&quot;</span><span class="p">,</span> <span class="s2">&quot;Commons&quot;</span><span class="p">,</span> <span class="s2">&quot;Alley&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;Bridge&quot;</span><span class="p">,</span> <span class="s2">&quot;Highway&quot;</span><span class="p">,</span> <span class="s2">&quot;Circle&quot;</span><span class="p">,</span> <span class="s2">&quot;Terrace&quot;</span><span class="p">,</span> <span class="s2">&quot;Way&quot;</span><span class="p">]</span>
-
-<span class="c1"># Adding street names in dictionary by type</span>
-<span class="k">def</span> <span class="nf">audit_street_type</span><span class="p">(</span><span class="n">street_types</span><span class="p">,</span> <span class="n">street_name</span><span class="p">):</span>
-    <span class="n">m</span> <span class="o">=</span> <span class="n">street_type_re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">street_name</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">m</span><span class="p">:</span>
-        <span class="n">street_type</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">group</span><span class="p">()</span>
-        <span class="k">if</span> <span class="n">street_type</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">expected</span><span class="p">:</span>
-            <span class="n">street_types</span><span class="p">[</span><span class="n">street_type</span><span class="p">]</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">street_name</span><span class="p">)</span>
-
-<span class="c1"># Checking tag for street data content </span>
-<span class="k">def</span> <span class="nf">is_street_name</span><span class="p">(</span><span class="n">elem</span><span class="p">):</span>
-    <span class="k">return</span> <span class="p">(</span><span class="n">elem</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s1">&#39;k&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;addr:street&quot;</span><span class="p">)</span>
-
-<span class="c1"># Auditing file for different abbreviations of same street types </span>
-<span class="k">def</span> <span class="nf">audit</span><span class="p">(</span><span class="n">osmfile</span><span class="p">):</span>
-    <span class="n">osm_file</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">osmfile</span><span class="p">,</span> <span class="s2">&quot;r&quot;</span><span class="p">)</span>    
-    <span class="n">street_types</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">set</span><span class="p">)</span>
-    <span class="k">for</span> <span class="n">event</span><span class="p">,</span> <span class="n">elem</span> <span class="ow">in</span> <span class="n">ET</span><span class="o">.</span><span class="n">iterparse</span><span class="p">(</span><span class="n">osm_file</span><span class="p">,</span> <span class="n">events</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;start&quot;</span><span class="p">,)):</span>
-        <span class="k">if</span> <span class="n">elem</span><span class="o">.</span><span class="n">tag</span> <span class="o">==</span> <span class="s2">&quot;node&quot;</span> <span class="ow">or</span> <span class="n">elem</span><span class="o">.</span><span class="n">tag</span> <span class="o">==</span> <span class="s2">&quot;way&quot;</span><span class="p">:</span>
-            <span class="k">for</span> <span class="n">tag</span> <span class="ow">in</span> <span class="n">elem</span><span class="o">.</span><span class="n">iter</span><span class="p">(</span><span class="s2">&quot;tag&quot;</span><span class="p">):</span>
-                <span class="k">if</span> <span class="n">is_street_name</span><span class="p">(</span><span class="n">tag</span><span class="p">):</span>
-                    <span class="n">audit_street_type</span><span class="p">(</span><span class="n">street_types</span><span class="p">,</span> <span class="n">tag</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s1">&#39;v&#39;</span><span class="p">])</span>
-    <span class="n">osm_file</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
-    <span class="k">return</span> <span class="n">street_types</span>
-</pre></div>
-
-</div>
-</div>
-</div>
-
-</div>
-<div class="cell border-box-sizing code_cell rendered">
-<div class="input">
-<div class="prompt input_prompt">In&nbsp;[3]:</div>
-<div class="inner_cell">
-    <div class="input_area">
-<div class=" highlight hl-ipython2"><pre><span></span><span class="c1"># Auditing our osm file</span>
-<span class="n">st_types</span> <span class="o">=</span> <span class="n">audit</span><span class="p">(</span><span class="n">osm_file</span><span class="p">)</span>
-
-<span class="c1"># Printing results </span>
-<span class="n">pprint</span><span class="o">.</span><span class="n">pprint</span><span class="p">(</span><span class="nb">dict</span><span class="p">(</span><span class="n">st_types</span><span class="p">))</span>
-</pre></div>
-
-</div>
-</div>
-</div>
-
-<div class="output_wrapper">
-<div class="output">
-
-
-<div class="output_area"><div class="prompt"></div>
-<div class="output_subarea output_stream output_stdout output_text">
-<pre>{&#39;18&#39;: set([&#39;PA 18&#39;, &#39;Route 18&#39;]),
- &#39;19&#39;: set([&#39;Route 19&#39;, &#39;US 19&#39;]),
- &#39;202&#39;: set([&#39;Wilkins Avenue #202&#39;]),
- &#39;217&#39;: set([&#39;217&#39;]),
- &#39;228&#39;: set([&#39;Pennsylvania 228&#39;, &#39;Pennylvania 228&#39;, &#39;State Route 228&#39;]),
- &#39;30&#39;: set([&#39;Route 30&#39;, &#39;State Route 30&#39;, &#39;U.S. 30&#39;]),
- &#39;400&#39;: set([&#39;West Kensinger Drive #400&#39;]),
- &#39;51&#39;: set([&#39;Route 51&#39;, &#39;State Route 51&#39;]),
- &#39;519&#39;: set([&#39;PA 519&#39;, &#39;Route 519&#39;]),
- &#39;8&#39;: set([&#39;Route 8&#39;]),
- &#39;837&#39;: set([&#39;Route 837&#39;]),
- &#39;885&#39;: set([&#39;Route 885&#39;]),
- &#39;910&#39;: set([&#39;Route 910&#39;]),
- &#39;Allegheny&#39;: set([&#39;South Allegheny&#39;]),
- &#39;Allies&#39;: set([&#39;Boulevard of the Allies&#39;]),
- &#39;Automotive&#39;: set([&#39;California Automotive&#39;]),
- &#39;Av.&#39;: set([&#39;Fifth Av.&#39;]),
- &#39;Ave&#39;: set([&#39;5th Ave&#39;,
-             &#39;6th Ave&#39;,
-             &#39;Arlington Ave&#39;,
-             &#39;Atlantic Ave&#39;,
-             &#39;Center Ave&#39;,
-             &#39;Centre Ave&#39;,
-             &#39;Elizabeth Ave&#39;,
-             &#39;Fifth Ave&#39;,
-             &#39;Forbes Ave&#39;,
-             &#39;Friendship Ave&#39;,
-             &#39;Glenn Ave&#39;,
-             &#39;Highland Ave&#39;,
-             &#39;Liberty Ave&#39;,
-             &#39;Lynnwood Ave&#39;,
-             &#39;Morewood Ave&#39;,
-             &#39;North Highland Ave&#39;,
-             &#39;Romine Ave&#39;,
-             &#39;S Highland Ave&#39;,
-             &#39;S Millvale Ave&#39;,
-             &#39;S Negley Ave&#39;,
-             &#39;S. Aiken Ave&#39;,
-             &#39;Shadeland Ave&#39;,
-             &#39;Shady Ave&#39;,
-             &#39;South Aiken Ave&#39;,
-             &#39;University Ave&#39;]),
- &#39;Ave.&#39;: set([&#39;4th Ave.&#39;,
-              &#39;5th Ave.&#39;,
-              &#39;Chartiers Ave.&#39;,
-              &#39;Fifth Ave.&#39;,
-              &#39;Macon Ave.&#39;,
-              &#39;Murray Ave.&#39;,
-              &#39;Romine Ave.&#39;]),
- &#39;Blvd&#39;: set([&#39;Beechwood Blvd&#39;,
-              &#39;Lysle Blvd&#39;,
-              &#39;Pennsbury Blvd&#39;,
-              &#39;Sunset Blvd&#39;,
-              &#39;Washington Blvd&#39;]),
- &#39;Blvd.&#39;: set([&#39;Ohio River Blvd.&#39;]),
- &#39;Brdg&#39;: set([&#39;Swindell Brdg&#39;]),
- &#39;CT&#39;: set([&#39;Highfield CT&#39;]),
- &#39;Center&#39;: set([&#39;Quaker Village Shopping Center&#39;]),
- &#39;Connector&#39;: set([&#39;John Scott Connector&#39;]),
- &#39;Cove&#39;: set([&#39;Pheasant Cove&#39;]),
- &#39;Crossing&#39;: set([&#39;Banbury Crossing&#39;]),
- &#39;Ct&#39;: set([&#39;Imperial Ct&#39;, &#39;LaPlace Point Ct&#39;]),
- &#39;DR&#39;: set([&#39;MIDWAY DR&#39;]),
- &#39;Dowling&#39;: set([&#39;Dowling&#39;]),
- &#39;Dr&#39;: set([&#39;Berwick Dr&#39;,
-            &#39;Black Hawk Dr&#39;,
-            &#39;Camden Dr&#39;,
-            &#39;Corporate Dr&#39;,
-            &#39;Douglas Dr&#39;,
-            &#39;Eastminster Dr&#39;,
-            &#39;Fox Ridge Farms Dr&#39;,
-            &#39;Glengary Dr&#39;,
-            &#39;Greyfriar Dr&#39;,
-            &#39;Industry Dr&#39;,
-            &#39;Kirkwall Dr&#39;,
-            &#39;Selvin Dr&#39;]),
- &#39;Dr.&#39;: set([&#39;Estates Dr.&#39;]),
- &#39;East&#39;: set([&#39;Deer Park Drive East&#39;,
-              &#39;Horseshoe Circle East&#39;,
-              &#39;Squaw Run Road East&#39;,
-              &#39;Waterfront Drive East&#39;,
-              &#39;Waterman Road East&#39;]),
- &#39;Eisele&#39;: set([&#39;Eisele&#39;]),
- &#39;End&#39;: set([&#39;Trails End&#39;]),
- &#39;Entrance&#39;: set([&#39;Towne Hall Entrance&#39;]),
- &#39;Expressway&#39;: set([&#39;Mon/Fayette Expressway&#39;, &#39;Tri-Boro Expressway&#39;]),
- &#39;Extension&#39;: set([&#39;Bowman Street Extension&#39;,
-                   &#39;Brierly Lane Extension&#39;,
-                   &#39;Broadway Avenue Extension&#39;,
-                   &#39;Federal Street Extension&#39;,
-                   &#39;Gulf Lab Road Extension&#39;,
-                   &#39;Hookstown Road Extension&#39;,
-                   &#39;Jacktown Road Extension&#39;,
-                   &#39;Middle Road Extension&#39;,
-                   &#39;Mount Troy Road Extension&#39;,
-                   &#39;Thomas Street Extension&#39;,
-                   &#39;Virginia Avenue Extension&#39;]),
- &#39;Harbor&#39;: set([&#39;Boothbay Harbor&#39;,
-                &#39;Marblehead Harbor&#39;,
-                &#39;Mystic Harbor&#39;,
-                &#39;Saybrook Harbor&#39;]),
- &#39;Harding&#39;: set([&#39;Harding&#39;]),
- &#39;Heights&#39;: set([&#39;Meadow Heights&#39;]),
- &#39;Hill&#39;: set([&#39;Serenity Hill&#39;]),
- &#39;Hwy&#39;: set([&#39;Perry Hwy&#39;]),
- &#39;Joanne&#39;: set([&#39;Joanne&#39;]),
- &#39;Ln&#39;: set([&#39;Meadow Park Ln&#39;, &#39;Mountain Trails Ln&#39;]),
- &#39;Lysle&#39;: set([&#39;Lysle&#39;]),
- &#39;Maples&#39;: set([&#39;The Maples&#39;]),
- &#39;Marshall&#39;: set([&#39;Marshall&#39;]),
- &#39;Maurers&#39;: set([&#39;Maurers&#39;]),
- &#39;McAleer&#39;: set([&#39;McAleer&#39;]),
- &#39;North&#39;: set([&#39;Freedom Drive North&#39;,
-               &#39;Grandview Drive North&#39;,
-               &#39;Lakeside Drive North&#39;,
-               &#39;Randolph Drive North&#39;]),
- &#39;Oaks&#39;: set([&#39;The Oaks&#39;]),
- &#39;PA-228&#39;: set([&#39;PA-228&#39;]),
- &#39;PA-910&#39;: set([&#39;PA-910&#39;]),
- &#39;PA-982&#39;: set([&#39;PA-982&#39;]),
- &#39;Park&#39;: set([&#39;Arlington Park&#39;, &#39;Blueberry Hill Park&#39;]),
- &#39;Patricia&#39;: set([&#39;Patricia&#39;]),
- &#39;Penco&#39;: set([&#39;Penco&#39;]),
- &#39;Pike&#39;: set([&#39;Greensburg Pike&#39;,
-              &#39;Kittanning Pike&#39;,
-              &#39;Northern Pike&#39;,
-              &#39;Steubenville Pike&#39;,
-              &#39;Washington Pike&#39;]),
- &#39;Pl&#39;: set([&#39;Washington Pl&#39;]),
- &#39;Plaza&#39;: set([&#39;Penn Plaza&#39;]),
- &#39;Rd&#39;: set([&#39;Bayard Rd&#39;,
-            &#39;Browns Hill Rd&#39;,
-            &#39;Brownsville Rd&#39;,
-            &#39;California Rd&#39;,
-            &#39;Camp Hollow Rd&#39;,
-            &#39;Hill-Church Houston Rd&#39;,
-            &#39;Kerrwood Rd&#39;,
-            &#39;McNeilly Rd&#39;,
-            &#39;Ravencrest Rd&#39;,
-            &#39;Robinhood Rd&#39;,
-            &#39;State Line Rd&#39;,
-            &#39;Wexford Rd&#39;]),
- &#39;Rear&#39;: set([&#39;Spruce Street Rear&#39;]),
- &#39;Rossway&#39;: set([&#39;Rossway&#39;]),
- &#39;Run&#39;: set([&#39;Honey Run&#39;]),
- &#39;ST&#39;: set([&#39;12TH ST&#39;]),
- &#39;South&#39;: set([&#39;Freedom Drive South&#39;,
-               &#39;Grandview Drive South&#39;,
-               &#39;Penn Circle South&#39;,
-               &#39;Randolph Drive South&#39;]),
- &#39;Sq&#39;: set([&#39;Elmer L Williams Sq&#39;,
-            &#39;Harvard Sq&#39;,
-            &#39;Northtowne Sq&#39;,
-            &#39;Sheridan Sq&#39;]),
- &#39;St&#39;: set([&#39;7th St&#39;,
-            &#39;8th St&#39;,
-            &#39;Bellefonte St&#39;,
-            &#39;Castleman St&#39;,
-            &#39;Copeland St&#39;,
-            &#39;First St&#39;,
-            &#39;Hemlock St&#39;,
-            &#39;Henry St&#39;,
-            &#39;Locust St&#39;,
-            &#39;Main St&#39;,
-            &#39;Mirror St&#39;,
-            &#39;N Craig St&#39;,
-            &#39;N Dithridge St&#39;,
-            &#39;N Neville St&#39;,
-            &#39;North Bellefield St&#39;,
-            &#39;S Craig St&#39;,
-            &#39;S Graham St&#39;,
-            &#39;S Whitfield St&#39;,
-            &#39;Saline St&#39;,
-            &#39;South Craig St&#39;,
-            &#39;South Dithridge St&#39;,
-            &#39;Stanwix St&#39;,
-            &#39;Walnut St&#39;,
-            &#39;West St&#39;,
-            &#39;Winthrop St&#39;,
-            &#39;Wood St&#39;]),
- &#39;St.&#39;: set([&#39;Atwood St.&#39;, &#39;Bryant St.&#39;, &#39;Byrant St.&#39;]),
- &#39;Strasse&#39;: set([&#39;Rihn Strasse&#39;]),
- &#39;Ter&#39;: set([&#39;Colby Ter&#39;, &#39;Faber Ter&#39;]),
- &#39;Trillium&#39;: set([&#39;The Trillium&#39;]),
- &#39;Walnut&#39;: set([&#39;Walnut&#39;]),
- &#39;Weir&#39;: set([&#39;Weir&#39;]),
- &#39;West&#39;: set([&#39;Deer Park Drive West&#39;,
-              &#39;Horseshoe Circle West&#39;,
-              &#39;Route 40 West&#39;,
-              &#39;Waterfront Drive West&#39;,
-              &#39;Waterman Road West&#39;]),
- &#39;Wheel-In-Campground&#39;: set([&#39;Wheel-In-Campground&#39;]),
- &#39;center&#39;: set([&#39;Hillcrest shopping center&#39;])}
-</pre>
-</div>
-</div>
-
-</div>
-</div>
-
 </div>
 <div class="cell border-box-sizing text_cell rendered">
 <div class="prompt input_prompt">
 </div>
 <div class="inner_cell">
 <div class="text_cell_render border-box-sizing rendered_html">
-<p>After scrutinizing audit results I've built mapping of abbreviations.</p>
+<p>First of all I changed all abbreviations to full representation of street types.</p>
+<p>Then I brought all zip codes to single 5 digit format by extracting 5 digit sequence from initial value.</p>
+<p>And finally I changed phone representations to +1-412-999-9999 format. I standardized the phone number formatting by first removing all spaces, hyphens and parenthesis. Then I appended +1 as country code and separated phone blocks with hyphens.
+You can take a look at code in OsmData.py file.</p>
 
 </div>
 </div>
-</div>
-<div class="cell border-box-sizing code_cell rendered">
-<div class="input">
-<div class="prompt input_prompt">In&nbsp;[4]:</div>
-<div class="inner_cell">
-    <div class="input_area">
-<div class=" highlight hl-ipython2"><pre><span></span><span class="n">mapping</span> <span class="o">=</span> <span class="p">{</span> <span class="s2">&quot;St&quot;</span><span class="p">:</span> <span class="s2">&quot;Street&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;St.&quot;</span><span class="p">:</span> <span class="s2">&quot;Street&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;ST&quot;</span><span class="p">:</span> <span class="s2">&quot;Street&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;Ave&quot;</span><span class="p">:</span> <span class="s2">&quot;Avenue&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;Ave.&quot;</span><span class="p">:</span> <span class="s2">&quot;Avenue&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;Av.&quot;</span><span class="p">:</span> <span class="s2">&quot;Avenue&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;Av&quot;</span><span class="p">:</span> <span class="s2">&quot;Avenue&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;Sq&quot;</span><span class="p">:</span> <span class="s2">&quot;Square&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;CT&quot;</span><span class="p">:</span> <span class="s2">&quot;Court&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;Ct&quot;</span><span class="p">:</span> <span class="s2">&quot;Court&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;DR&quot;</span><span class="p">:</span> <span class="s2">&quot;Drive&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;Dr&quot;</span><span class="p">:</span> <span class="s2">&quot;Drive&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;Dr.&quot;</span><span class="p">:</span> <span class="s2">&quot;Drive&quot;</span><span class="p">,</span> 
-            <span class="s2">&quot;Rd.&quot;</span><span class="p">:</span> <span class="s2">&quot;Road&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;Rd&quot;</span><span class="p">:</span> <span class="s2">&quot;Road&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;Pl&quot;</span><span class="p">:</span> <span class="s2">&quot;Place&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;Hwy&quot;</span><span class="p">:</span> <span class="s2">&quot;Highway&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;Ln&quot;</span><span class="p">:</span> <span class="s2">&quot;Lane&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;Blvd&quot;</span><span class="p">:</span> <span class="s2">&quot;Boulevard&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;Blvd.&quot;</span><span class="p">:</span> <span class="s2">&quot;Boulevard&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;Brdg&quot;</span><span class="p">:</span><span class="s2">&quot;Bridge&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;Ter&quot;</span><span class="p">:</span> <span class="s2">&quot;Terrace&quot;</span> 
-            <span class="p">}</span>
-</pre></div>
-
-</div>
-</div>
-</div>
-
-</div>
-<div class="cell border-box-sizing text_cell rendered">
-<div class="prompt input_prompt">
-</div>
-<div class="inner_cell">
-<div class="text_cell_render border-box-sizing rendered_html">
-<p>Now It's time to modify our osm file by replacement of abbreviations by full names.</p>
-
-</div>
-</div>
-</div>
-<div class="cell border-box-sizing code_cell rendered">
-<div class="input">
-<div class="prompt input_prompt">In&nbsp;[5]:</div>
-<div class="inner_cell">
-    <div class="input_area">
-<div class=" highlight hl-ipython2"><pre><span></span><span class="n">osm_file_new</span> <span class="o">=</span> <span class="s2">&quot;pittsburgh_pennsylvania_new.osm&quot;</span>
-
-<span class="c1"># This function replace abbrevition by full name in string</span>
-<span class="k">def</span> <span class="nf">update_name</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">mapping</span><span class="p">):</span>
-    <span class="n">words</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39; &#39;</span><span class="p">)</span>
-    <span class="n">last_word</span> <span class="o">=</span> <span class="n">words</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
-    <span class="k">if</span> <span class="n">last_word</span> <span class="ow">in</span> <span class="n">mapping</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
-        <span class="n">name2</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">last_word</span><span class="p">,</span> <span class="n">mapping</span><span class="p">[</span><span class="n">last_word</span><span class="p">])</span>
-        <span class="k">return</span> <span class="n">name2</span>
-    <span class="k">return</span> <span class="n">name</span>
-
-<span class="c1"># Supporting function to get element from osm file</span>
-<span class="k">def</span> <span class="nf">get_element</span><span class="p">(</span><span class="n">osm_file</span><span class="p">,</span> <span class="n">tags</span><span class="o">=</span><span class="p">(</span><span class="s1">&#39;node&#39;</span><span class="p">,</span> <span class="s1">&#39;way&#39;</span><span class="p">,</span> <span class="s1">&#39;relation&#39;</span><span class="p">)):</span>
-    <span class="n">context</span> <span class="o">=</span> <span class="nb">iter</span><span class="p">(</span><span class="n">ET</span><span class="o">.</span><span class="n">iterparse</span><span class="p">(</span><span class="n">osm_file</span><span class="p">,</span> <span class="n">events</span><span class="o">=</span><span class="p">(</span><span class="s1">&#39;start&#39;</span><span class="p">,</span> <span class="s1">&#39;end&#39;</span><span class="p">)))</span>
-    <span class="n">_</span><span class="p">,</span> <span class="n">root</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
-    <span class="k">for</span> <span class="n">event</span><span class="p">,</span> <span class="n">elem</span> <span class="ow">in</span> <span class="n">context</span><span class="p">:</span>
-        <span class="k">if</span> <span class="n">event</span> <span class="o">==</span> <span class="s1">&#39;end&#39;</span> <span class="ow">and</span> <span class="n">elem</span><span class="o">.</span><span class="n">tag</span> <span class="ow">in</span> <span class="n">tags</span><span class="p">:</span>
-            <span class="k">yield</span> <span class="n">elem</span>
-            <span class="n">root</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
-            
-<span class="c1"># This function replace abbreviations in osm file</span>
-<span class="k">def</span> <span class="nf">modify</span><span class="p">(</span><span class="n">old_file</span><span class="p">,</span> <span class="n">new_file</span><span class="p">):</span>
-    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">new_file</span><span class="p">,</span> <span class="s1">&#39;wb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">output</span><span class="p">:</span>
-        <span class="n">output</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s1">&#39;&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;</span><span class="se">\n</span><span class="s1">&#39;</span><span class="p">)</span>
-        <span class="n">output</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s1">&#39;&lt;osm&gt;</span><span class="se">\n</span><span class="s1">  &#39;</span><span class="p">)</span> 
-        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">element</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">get_element</span><span class="p">(</span><span class="n">old_file</span><span class="p">)):</span>
-            <span class="k">for</span> <span class="n">tag</span> <span class="ow">in</span> <span class="n">element</span><span class="o">.</span><span class="n">iter</span><span class="p">(</span><span class="s2">&quot;tag&quot;</span><span class="p">):</span>
-                <span class="k">if</span> <span class="n">is_street_name</span><span class="p">(</span><span class="n">tag</span><span class="p">):</span>
-                    <span class="n">tag</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="s1">&#39;v&#39;</span><span class="p">,</span><span class="n">update_name</span><span class="p">(</span><span class="n">tag</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s1">&#39;v&#39;</span><span class="p">],</span> <span class="n">mapping</span><span class="p">))</span>
-            <span class="n">output</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">ET</span><span class="o">.</span><span class="n">tostring</span><span class="p">(</span><span class="n">element</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s1">&#39;utf-8&#39;</span><span class="p">))</span>
-        <span class="n">output</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s1">&#39;&lt;/osm&gt;&#39;</span><span class="p">)</span>
-
-<span class="c1"># Modifying osm file</span>
-<span class="n">modify</span><span class="p">(</span><span class="n">osm_file</span><span class="p">,</span> <span class="n">osm_file_new</span><span class="p">)</span>
-</pre></div>
-
-</div>
-</div>
-</div>
-
 </div>
 <div class="cell border-box-sizing text_cell rendered">
 <div class="prompt input_prompt">
@@ -12191,165 +11823,8 @@ div#notebook {
 </div>
 <div class="inner_cell">
 <div class="text_cell_render border-box-sizing rendered_html">
-<p>After auditing is complete the next step is to prepare the data to be inserted into a SQL database. To do so you will parse the elements in the OSM XML file, transforming them from document format to tabular format, thus making it possible to write to .csv files. These csv files can then easily be imported to a SQL database as tables.</p>
+<p>After auditing is complete the next step is to prepare the data to be inserted into a SQL database. To do so I parsed all elements in the OSM XML file, transforming them from document format to tabular format, thus making it possible to write to .csv files. These csv files can then easily be imported to a SQL database as tables.</p>
 
-</div>
-</div>
-</div>
-<div class="cell border-box-sizing code_cell rendered">
-<div class="input">
-<div class="prompt input_prompt">In&nbsp;[18]:</div>
-<div class="inner_cell">
-    <div class="input_area">
-<div class=" highlight hl-ipython2"><pre><span></span><span class="c1"># Path to new csv files</span>
-<span class="n">NODES_PATH</span> <span class="o">=</span> <span class="s2">&quot;nodes.csv&quot;</span>
-<span class="n">NODE_TAGS_PATH</span> <span class="o">=</span> <span class="s2">&quot;nodes_tags.csv&quot;</span>
-<span class="n">WAYS_PATH</span> <span class="o">=</span> <span class="s2">&quot;ways.csv&quot;</span>
-<span class="n">WAY_NODES_PATH</span> <span class="o">=</span> <span class="s2">&quot;ways_nodes.csv&quot;</span>
-<span class="n">WAY_TAGS_PATH</span> <span class="o">=</span> <span class="s2">&quot;ways_tags.csv&quot;</span>
-
-<span class="c1"># Re functions</span>
-<span class="n">LOWER_COLON</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s1">r&#39;^([a-z]|_)+:([a-z]|_)+&#39;</span><span class="p">)</span>
-<span class="n">PROBLEMCH</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s1">r&#39;[=\+/&amp;&lt;&gt;;</span><span class="se">\&#39;</span><span class="s1">&quot;\?%#$@\,\. \t\r\n]&#39;</span><span class="p">)</span>
-
-<span class="c1"># Importing schema for pransformation from schema.py file</span>
-<span class="n">SCHEMA</span> <span class="o">=</span> <span class="n">Schema</span><span class="o">.</span><span class="n">schema</span>
-
-<span class="c1"># Fields of new csv files</span>
-<span class="c1"># Make sure the fields order in the csvs matches the column order in the </span>
-<span class="c1"># sql table schema</span>
-<span class="n">NODE_FIELDS</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">,</span> <span class="s1">&#39;lat&#39;</span><span class="p">,</span> <span class="s1">&#39;lon&#39;</span><span class="p">,</span> <span class="s1">&#39;user&#39;</span><span class="p">,</span> <span class="s1">&#39;uid&#39;</span><span class="p">,</span> <span class="s1">&#39;version&#39;</span><span class="p">,</span>
-               <span class="s1">&#39;changeset&#39;</span><span class="p">,</span> <span class="s1">&#39;timestamp&#39;</span><span class="p">]</span>
-<span class="n">NODE_TAGS_FIELDS</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">,</span> <span class="s1">&#39;key&#39;</span><span class="p">,</span> <span class="s1">&#39;value&#39;</span><span class="p">,</span> <span class="s1">&#39;type&#39;</span><span class="p">]</span>
-<span class="n">WAY_FIELDS</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">,</span> <span class="s1">&#39;user&#39;</span><span class="p">,</span> <span class="s1">&#39;uid&#39;</span><span class="p">,</span> <span class="s1">&#39;version&#39;</span><span class="p">,</span> <span class="s1">&#39;changeset&#39;</span><span class="p">,</span> <span class="s1">&#39;timestamp&#39;</span><span class="p">]</span>
-<span class="n">WAY_TAGS_FIELDS</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">,</span> <span class="s1">&#39;key&#39;</span><span class="p">,</span> <span class="s1">&#39;value&#39;</span><span class="p">,</span> <span class="s1">&#39;type&#39;</span><span class="p">]</span>
-<span class="n">WAY_NODES_FIELDS</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">,</span> <span class="s1">&#39;node_id&#39;</span><span class="p">,</span> <span class="s1">&#39;position&#39;</span><span class="p">]</span>
-
-
-<span class="c1"># Main function for transformation of XML data Python dict</span>
-<span class="k">def</span> <span class="nf">shape_element</span><span class="p">(</span><span class="n">element</span><span class="p">,</span> <span class="n">node_attr_fields</span><span class="o">=</span><span class="n">NODE_FIELDS</span><span class="p">,</span>
-                  <span class="n">way_attr_fields</span><span class="o">=</span><span class="n">WAY_FIELDS</span><span class="p">,</span> <span class="n">prob_ch</span><span class="o">=</span><span class="n">PROBLEMCH</span><span class="p">,</span>
-                  <span class="n">default_tag_type</span><span class="o">=</span><span class="s1">&#39;regular&#39;</span><span class="p">):</span>
-    
-    <span class="n">tag_attribs</span> <span class="o">=</span> <span class="p">{}</span>
-    <span class="n">way_nodes</span> <span class="o">=</span> <span class="p">[]</span>
-    <span class="n">tags</span> <span class="o">=</span> <span class="p">[]</span>
-    <span class="n">count</span> <span class="o">=</span> <span class="mi">0</span>
-    <span class="k">if</span> <span class="n">element</span><span class="o">.</span><span class="n">tag</span> <span class="o">==</span> <span class="s1">&#39;node&#39;</span><span class="p">:</span>
-        <span class="n">tagfields</span> <span class="o">=</span> <span class="n">node_attr_fields</span>
-    <span class="k">elif</span> <span class="n">element</span><span class="o">.</span><span class="n">tag</span> <span class="o">==</span> <span class="s1">&#39;way&#39;</span><span class="p">:</span>
-        <span class="n">tagfields</span> <span class="o">=</span> <span class="n">way_attr_fields</span>
-    
-    <span class="k">if</span> <span class="n">element</span><span class="o">.</span><span class="n">tag</span> <span class="o">==</span> <span class="s1">&#39;node&#39;</span> <span class="ow">or</span> <span class="s1">&#39;way&#39;</span><span class="p">:</span>
-        <span class="k">for</span> <span class="n">attrib</span> <span class="ow">in</span> <span class="n">element</span><span class="o">.</span><span class="n">attrib</span><span class="p">:</span>
-            <span class="k">if</span> <span class="n">attrib</span> <span class="ow">in</span> <span class="n">tagfields</span><span class="p">:</span>
-                <span class="n">tag_attribs</span><span class="p">[</span><span class="n">attrib</span><span class="p">]</span> <span class="o">=</span> <span class="n">element</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="n">attrib</span><span class="p">]</span>
-    <span class="k">for</span> <span class="n">subelem</span> <span class="ow">in</span> <span class="n">element</span><span class="p">:</span>
-        <span class="k">if</span> <span class="n">subelem</span><span class="o">.</span><span class="n">tag</span> <span class="o">==</span> <span class="s1">&#39;tag&#39;</span> <span class="ow">and</span> <span class="n">prob_ch</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">subelem</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s1">&#39;k&#39;</span><span class="p">])</span> <span class="o">==</span> <span class="bp">None</span><span class="p">:</span>
-            <span class="n">tag</span> <span class="o">=</span> <span class="p">{}</span>
-            <span class="n">tag</span><span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tag_attribs</span><span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">]</span>
-            <span class="n">tag</span><span class="p">[</span><span class="s1">&#39;value&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">subelem</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s1">&#39;v&#39;</span><span class="p">]</span>
-            <span class="n">key</span> <span class="o">=</span> <span class="n">subelem</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s1">&#39;k&#39;</span><span class="p">]</span>
-            <span class="n">tag</span><span class="p">[</span><span class="s1">&#39;key&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">key</span><span class="p">[</span><span class="n">key</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s1">&#39;:&#39;</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span><span class="p">:]</span>
-            <span class="k">if</span> <span class="s1">&#39;:&#39;</span> <span class="ow">in</span> <span class="n">key</span><span class="p">:</span>
-                <span class="n">tag</span><span class="p">[</span><span class="s1">&#39;type&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">key</span><span class="p">[:</span><span class="n">key</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s1">&#39;:&#39;</span><span class="p">)]</span>
-            <span class="k">else</span><span class="p">:</span>
-                <span class="n">tag</span><span class="p">[</span><span class="s1">&#39;type&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">default_tag_type</span>
-            <span class="n">tags</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">tag</span><span class="p">)</span>
-        <span class="k">elif</span> <span class="n">subelem</span><span class="o">.</span><span class="n">tag</span> <span class="o">==</span> <span class="s1">&#39;nd&#39;</span><span class="p">:</span>
-            <span class="n">way_node</span> <span class="o">=</span> <span class="p">{}</span>
-            <span class="n">way_node</span><span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tag_attribs</span><span class="p">[</span><span class="s1">&#39;id&#39;</span><span class="p">]</span>
-            <span class="n">way_node</span><span class="p">[</span><span class="s1">&#39;node_id&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">subelem</span><span class="o">.</span><span class="n">attrib</span><span class="p">[</span><span class="s1">&#39;ref&#39;</span><span class="p">]</span>
-            <span class="n">way_node</span><span class="p">[</span><span class="s1">&#39;position&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">count</span>
-            <span class="n">count</span> <span class="o">+=</span> <span class="mi">1</span>
-            <span class="n">way_nodes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">way_node</span><span class="p">)</span>
-    
-    <span class="k">if</span> <span class="n">element</span><span class="o">.</span><span class="n">tag</span> <span class="o">==</span> <span class="s1">&#39;node&#39;</span><span class="p">:</span>
-        <span class="k">return</span> <span class="p">{</span><span class="s1">&#39;node&#39;</span><span class="p">:</span> <span class="n">tag_attribs</span><span class="p">,</span> <span class="s1">&#39;node_tags&#39;</span><span class="p">:</span> <span class="n">tags</span><span class="p">}</span>
-    <span class="k">elif</span> <span class="n">element</span><span class="o">.</span><span class="n">tag</span> <span class="o">==</span> <span class="s1">&#39;way&#39;</span><span class="p">:</span>
-        <span class="k">return</span> <span class="p">{</span><span class="s1">&#39;way&#39;</span><span class="p">:</span> <span class="n">tag_attribs</span><span class="p">,</span> <span class="s1">&#39;way_nodes&#39;</span><span class="p">:</span> <span class="n">way_nodes</span><span class="p">,</span> <span class="s1">&#39;way_tags&#39;</span><span class="p">:</span> <span class="n">tags</span><span class="p">}</span>
-    
-<span class="c1"># Validate element to match schema</span>
-<span class="k">def</span> <span class="nf">validate_element</span><span class="p">(</span><span class="n">element</span><span class="p">,</span> <span class="n">validator</span><span class="p">,</span> <span class="n">schema</span><span class="o">=</span><span class="n">SCHEMA</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;Raise ValidationError if element does not match schema&quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="n">validator</span><span class="o">.</span><span class="n">validate</span><span class="p">(</span><span class="n">element</span><span class="p">,</span> <span class="n">schema</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">True</span><span class="p">:</span>
-        <span class="n">field</span><span class="p">,</span> <span class="n">errors</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">validator</span><span class="o">.</span><span class="n">errors</span><span class="o">.</span><span class="n">iteritems</span><span class="p">())</span>
-        <span class="n">message_string</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">Element of type &#39;{0}&#39; has the following errors:</span><span class="se">\n</span><span class="s2">{1}&quot;</span>
-        <span class="n">error_strings</span> <span class="o">=</span> <span class="p">(</span>
-            <span class="s2">&quot;{0}: {1}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="k">else</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">v</span><span class="p">))</span>
-            <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">errors</span><span class="o">.</span><span class="n">iteritems</span><span class="p">()</span>
-        <span class="p">)</span>
-        <span class="k">raise</span> <span class="n">cerberus</span><span class="o">.</span><span class="n">ValidationError</span><span class="p">(</span>
-            <span class="n">message_string</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">field</span><span class="p">,</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">error_strings</span><span class="p">))</span>
-        <span class="p">)</span>
-
-
-<span class="c1"># Extend csv.DictWriter to handle Unicode input</span>
-<span class="k">class</span> <span class="nc">UnicodeDictWriter</span><span class="p">(</span><span class="n">csv</span><span class="o">.</span><span class="n">DictWriter</span><span class="p">,</span> <span class="nb">object</span><span class="p">):</span>
-    
-    <span class="k">def</span> <span class="nf">writerow</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">row</span><span class="p">):</span>
-        <span class="nb">super</span><span class="p">(</span><span class="n">UnicodeDictWriter</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">writerow</span><span class="p">({</span>
-            <span class="n">k</span><span class="p">:</span> <span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="nb">unicode</span><span class="p">)</span> <span class="k">else</span> <span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">row</span><span class="o">.</span><span class="n">iteritems</span><span class="p">()</span>
-        <span class="p">})</span>
-
-    <span class="k">def</span> <span class="nf">writerows</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">rows</span><span class="p">):</span>
-        <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">rows</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">writerow</span><span class="p">(</span><span class="n">row</span><span class="p">)</span>
-            
-<span class="c1"># Main function to process osm file to 5 csv files</span>
-<span class="k">def</span> <span class="nf">process_map</span><span class="p">(</span><span class="n">file_in</span><span class="p">,</span> <span class="n">validate</span><span class="p">):</span>
-    <span class="sd">&quot;&quot;&quot;Iteratively process each XML element and write to csv(s)&quot;&quot;&quot;</span>
-
-    <span class="k">with</span> <span class="n">codecs</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">NODES_PATH</span><span class="p">,</span> <span class="s1">&#39;w&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">nodes_file</span><span class="p">,</span> \
-         <span class="n">codecs</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">NODE_TAGS_PATH</span><span class="p">,</span> <span class="s1">&#39;w&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">nodes_tags_file</span><span class="p">,</span> \
-         <span class="n">codecs</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">WAYS_PATH</span><span class="p">,</span> <span class="s1">&#39;w&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">ways_file</span><span class="p">,</span> \
-         <span class="n">codecs</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">WAY_NODES_PATH</span><span class="p">,</span> <span class="s1">&#39;w&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">way_nodes_file</span><span class="p">,</span> \
-         <span class="n">codecs</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">WAY_TAGS_PATH</span><span class="p">,</span> <span class="s1">&#39;w&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">way_tags_file</span><span class="p">:</span>
-
-        <span class="n">nodes_writer</span> <span class="o">=</span> <span class="n">UnicodeDictWriter</span><span class="p">(</span><span class="n">nodes_file</span><span class="p">,</span> <span class="n">NODE_FIELDS</span><span class="p">)</span>
-        <span class="n">node_tags_writer</span> <span class="o">=</span> <span class="n">UnicodeDictWriter</span><span class="p">(</span><span class="n">nodes_tags_file</span><span class="p">,</span> <span class="n">NODE_TAGS_FIELDS</span><span class="p">)</span>
-        <span class="n">ways_writer</span> <span class="o">=</span> <span class="n">UnicodeDictWriter</span><span class="p">(</span><span class="n">ways_file</span><span class="p">,</span> <span class="n">WAY_FIELDS</span><span class="p">)</span>
-        <span class="n">way_nodes_writer</span> <span class="o">=</span> <span class="n">UnicodeDictWriter</span><span class="p">(</span><span class="n">way_nodes_file</span><span class="p">,</span> <span class="n">WAY_NODES_FIELDS</span><span class="p">)</span>
-        <span class="n">way_tags_writer</span> <span class="o">=</span> <span class="n">UnicodeDictWriter</span><span class="p">(</span><span class="n">way_tags_file</span><span class="p">,</span> <span class="n">WAY_TAGS_FIELDS</span><span class="p">)</span>
-
-        <span class="n">nodes_writer</span><span class="o">.</span><span class="n">writeheader</span><span class="p">()</span>
-        <span class="n">node_tags_writer</span><span class="o">.</span><span class="n">writeheader</span><span class="p">()</span>
-        <span class="n">ways_writer</span><span class="o">.</span><span class="n">writeheader</span><span class="p">()</span>
-        <span class="n">way_nodes_writer</span><span class="o">.</span><span class="n">writeheader</span><span class="p">()</span>
-        <span class="n">way_tags_writer</span><span class="o">.</span><span class="n">writeheader</span><span class="p">()</span>
-
-        <span class="n">validator</span> <span class="o">=</span> <span class="n">cerberus</span><span class="o">.</span><span class="n">Validator</span><span class="p">()</span>
-
-        <span class="k">for</span> <span class="n">element</span> <span class="ow">in</span> <span class="n">get_element</span><span class="p">(</span><span class="n">file_in</span><span class="p">,</span> <span class="n">tags</span><span class="o">=</span><span class="p">(</span><span class="s1">&#39;node&#39;</span><span class="p">,</span> <span class="s1">&#39;way&#39;</span><span class="p">)):</span>
-            <span class="n">el</span> <span class="o">=</span> <span class="n">shape_element</span><span class="p">(</span><span class="n">element</span><span class="p">)</span>
-            <span class="k">if</span> <span class="n">el</span><span class="p">:</span>
-                <span class="k">if</span> <span class="n">validate</span> <span class="ow">is</span> <span class="bp">True</span><span class="p">:</span>
-                    <span class="n">validate_element</span><span class="p">(</span><span class="n">el</span><span class="p">,</span> <span class="n">validator</span><span class="p">)</span>
-
-                <span class="k">if</span> <span class="n">element</span><span class="o">.</span><span class="n">tag</span> <span class="o">==</span> <span class="s1">&#39;node&#39;</span><span class="p">:</span>
-                    <span class="n">nodes_writer</span><span class="o">.</span><span class="n">writerow</span><span class="p">(</span><span class="n">el</span><span class="p">[</span><span class="s1">&#39;node&#39;</span><span class="p">])</span>
-                    <span class="n">node_tags_writer</span><span class="o">.</span><span class="n">writerows</span><span class="p">(</span><span class="n">el</span><span class="p">[</span><span class="s1">&#39;node_tags&#39;</span><span class="p">])</span>
-                <span class="k">elif</span> <span class="n">element</span><span class="o">.</span><span class="n">tag</span> <span class="o">==</span> <span class="s1">&#39;way&#39;</span><span class="p">:</span>
-                    <span class="n">ways_writer</span><span class="o">.</span><span class="n">writerow</span><span class="p">(</span><span class="n">el</span><span class="p">[</span><span class="s1">&#39;way&#39;</span><span class="p">])</span>
-                    <span class="n">way_nodes_writer</span><span class="o">.</span><span class="n">writerows</span><span class="p">(</span><span class="n">el</span><span class="p">[</span><span class="s1">&#39;way_nodes&#39;</span><span class="p">])</span>
-                    <span class="n">way_tags_writer</span><span class="o">.</span><span class="n">writerows</span><span class="p">(</span><span class="n">el</span><span class="p">[</span><span class="s1">&#39;way_tags&#39;</span><span class="p">])</span>
-                    
-<span class="c1"># Note: Validation is ~ 15X slower. Consider using a small</span>
-<span class="c1"># sample of the map when validating.</span>
-<span class="n">process_map</span><span class="p">(</span><span class="n">osm_file_new</span><span class="p">,</span> <span class="n">validate</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
-</pre></div>
-
-</div>
-</div>
-</div>
-
-</div>
-<div class="cell border-box-sizing text_cell rendered">
-<div class="prompt input_prompt">
-</div>
-<div class="inner_cell">
-<div class="text_cell_render border-box-sizing rendered_html">
-<h2 id="Building-SQL-database">Building SQL database<a class="anchor-link" href="#Building-SQL-database">&#182;</a></h2>
 </div>
 </div>
 </div>
@@ -12358,59 +11833,7 @@ div#notebook {
 </div>
 <div class="inner_cell">
 <div class="text_cell_render border-box-sizing rendered_html">
-<p>In this section we will build SQL database and import tables to this database from csv file from previous section. We'll use sqlite3 shell for this purpose. It's needed to read create_db.csv file.
-.read create_csv.db
-Next command will execute this file:</p>
-<p>.read create_csv.db</p>
-<p>Content of file:</p>
-<p>CREATE TABLE nodes (
-    id INTEGER PRIMARY KEY NOT NULL,
-    lat REAL,
-    lon REAL,
-    user TEXT,
-    uid INTEGER,
-    version INTEGER,
-    changeset INTEGER,
-    timestamp TEXT
-);</p>
-<p>CREATE TABLE nodes_tags (
-    id INTEGER,
-    key TEXT,
-    value TEXT,
-    type TEXT,
-    FOREIGN KEY (id) REFERENCES nodes(id)
-);</p>
-<p>CREATE TABLE ways (
-    id INTEGER PRIMARY KEY NOT NULL,
-    user TEXT,
-    uid INTEGER,
-    version TEXT,
-    changeset INTEGER,
-    timestamp TEXT
-);</p>
-<p>CREATE TABLE ways_tags (
-    id INTEGER NOT NULL,
-    key TEXT NOT NULL,
-    value TEXT NOT NULL,
-    type TEXT,
-    FOREIGN KEY (id) REFERENCES ways(id)
-);</p>
-<p>CREATE TABLE ways_nodes (
-    id INTEGER NOT NULL,
-    node_id INTEGER NOT NULL,
-    position INTEGER NOT NULL,
-    FOREIGN KEY (id) REFERENCES ways(id),
-    FOREIGN KEY (node_id) REFERENCES nodes(id)
-);</p>
-<p>.mode csv</p>
-<p>.import nodes.csv nodes</p>
-<p>.import ways.csv ways</p>
-<p>.import nodes_tags.csv nodes_tags</p>
-<p>delete from nodes_tags where id = 'id';</p>
-<p>.import ways_tags.csv ways_tags</p>
-<p>delete from ways_tags where id = 'id';</p>
-<p>.import ways_nodes.csv ways_nodes</p>
-<p>delete from ways_nodes where id = 'id';</p>
+<p>Finally I built SQL database and import tables to this database from csv file from previous step. I used sqlite3 shell for this purpose.</p>
 
 </div>
 </div>
@@ -12429,6 +11852,9 @@ Next command will execute this file:</p>
 </div>
 <div class="inner_cell">
 <div class="text_cell_render border-box-sizing rendered_html">
+<p>Here, I present some basic statistics about the data.</p>
+<p>Original Data file Size: 407 MB.</p>
+<p>SQLite DB file size: 227 MB</p>
 <p>For quering database I'll use not sqlite3 shell, but sqlite3 Puthon API.</p>
 <p>1) Number of nodes</p>
 <p>2) Number of ways</p>
@@ -12438,7 +11864,7 @@ Next command will execute this file:</p>
 </div>
 <div class="cell border-box-sizing code_cell rendered">
 <div class="input">
-<div class="prompt input_prompt">In&nbsp;[5]:</div>
+<div class="prompt input_prompt">In&nbsp;[9]:</div>
 <div class="inner_cell">
     <div class="input_area">
 <div class=" highlight hl-ipython2"><pre><span></span><span class="c1"># Importing SQLite3 API</span>
@@ -12465,8 +11891,8 @@ Next command will execute this file:</p>
 
 <div class="output_area"><div class="prompt"></div>
 <div class="output_subarea output_stream output_stdout output_text">
-<pre>There are 1911654 nodes in database.
-There are 195498 ways in database.
+<pre>There are 47792 nodes in database.
+There are 4887 ways in database.
 </pre>
 </div>
 </div>
@@ -12487,7 +11913,7 @@ There are 195498 ways in database.
 </div>
 <div class="cell border-box-sizing code_cell rendered">
 <div class="input">
-<div class="prompt input_prompt">In&nbsp;[6]:</div>
+<div class="prompt input_prompt">In&nbsp;[10]:</div>
 <div class="inner_cell">
     <div class="input_area">
 <div class=" highlight hl-ipython2"><pre><span></span><span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;select count(distinct(uid)) from (select uid from nodes union select uid from ways);&quot;</span><span class="p">)</span>
@@ -12504,7 +11930,7 @@ There are 195498 ways in database.
 
 <div class="output_area"><div class="prompt"></div>
 <div class="output_subarea output_stream output_stdout output_text">
-<pre>There are 1227 uniqe users in database.
+<pre>There are 662 uniqe users in database.
 </pre>
 </div>
 </div>
@@ -12525,7 +11951,7 @@ There are 195498 ways in database.
 </div>
 <div class="cell border-box-sizing code_cell rendered">
 <div class="input">
-<div class="prompt input_prompt">In&nbsp;[7]:</div>
+<div class="prompt input_prompt">In&nbsp;[11]:</div>
 <div class="inner_cell">
     <div class="input_area">
 <div class=" highlight hl-ipython2"><pre><span></span><span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;select id, count(*) as nodes_count from ways_nodes group by id order by nodes_count desc limit 1;&quot;</span><span class="p">)</span>
@@ -12546,12 +11972,9 @@ There are 195498 ways in database.
 
 <div class="output_area"><div class="prompt"></div>
 <div class="output_subarea output_stream output_stdout output_text">
-<pre>There&#39;re 1975 nodes in the biggest way in database. Way id is 186341673.
+<pre>There&#39;re 382 nodes in the biggest way in database. Way id is 384745032.
 This way is:
-[(186341673, u&#39;name&#39;, u&#39;Breakneck Creek&#39;, u&#39;regular\r&#39;),
- (186341673, u&#39;source&#39;, u&#39;bing&#39;, u&#39;regular\r&#39;),
- (186341673, u&#39;waterway&#39;, u&#39;stream&#39;, u&#39;regular\r&#39;),
- (186341673, u&#39;city&#39;, u&#39;Mars&#39;, u&#39;addr\r&#39;)]
+[]
 </pre>
 </div>
 </div>
@@ -12654,7 +12077,31 @@ This way is:
 </div>
 <div class="inner_cell">
 <div class="text_cell_render border-box-sizing rendered_html">
-<p>OpenStreetMap data is not perfect as any human modified project. It'll take a lot of time to find and clean all human-made errors. But we've made our first step. We modified street names and made them more consistent and uniform. Then we transformed XML to CSV format and imported it into SQL database. And finaly we answered some interesting questions using SQL queries.</p>
+<p>During my analysis I've seen large amount of data that has not been correctly formatted and cleaned. But I successfully parsed this data and corrected streets, zip codes and phones formatting. The bigger issue is that osm data has a lot of inconsistencies. Sometimes it's difficult even to find this inconsistencies. There is a lot of work to be done to complete this map.</p>
+<p>OpenStreetMap data is not perfect as any human modified project. It'll take a lot of time to find and clean all human-made errors. But we've made our first step. We modified street names and made them more consistent and uniform. Then we transformed XML to CSV format and imported it into SQL database. And finally we answered some interesting questions using SQL queries.</p>
+
+</div>
+</div>
+</div>
+<div class="cell border-box-sizing text_cell rendered">
+<div class="prompt input_prompt">
+</div>
+<div class="inner_cell">
+<div class="text_cell_render border-box-sizing rendered_html">
+<p>Additional ideas:<br>
+In my opinion there's two way to improve OpenStreenData project.<br>
+First of all it's extremely important to attract more people to improving maps. My suggestion would be the use of gamification. It's reasonable to establish ranking system like on Kaggle or badge system like on Khan academy.<br>
+Benefits of this:</p>
+<ul>
+<li>increase in productivity</li>
+<li>help to retain high performers by involving them into moderation</li>
+</ul>
+<p>Antisipated problems:</p>
+<ul>
+<li>have very small effect on results</li>
+<li>creates competition that can be counterproductive</li>
+</ul>
+<p>Second is to use of different sources to cross-validate inconsistencies and empty spots on OSD maps.</p>
 
 </div>
 </div>

@@ -4,16 +4,18 @@ In this project I analyze the OpenStreetMap data of the Pittsburgh, perform auto
 
 All files related to this project are located in this GitHub directory. 
 
-1) iPython notebook with all the code [here](OpenStreetMap notebook.ipynb).
+1) iPython notebook OpenStreetMap notebook.ipynb [here](OpenStreetMap notebook.ipynb).
 
-2) Report document [here](OpenStreetMap_notebook.html).
+2) Python code file OsmData.py [here](OsmData.py).
 
-3) Archive with original OSM data [here](pittsburgh_pennsylvania.osm.bz2).
+3) Report document OpenStreetMap notebook.html [here](OpenStreetMap_notebook.html).
 
-4) Small sample of OSM data [here](pittsburgh_pennsylvania.osm).
+4) Archive with original OSM data pittsburgh pennsylvania.osm.bz2 [here](pittsburgh_pennsylvania.osm.bz2).
 
-5) Schema of transformation [here](schema.py).
+5) Small sample of OSM data pittsburgh pennsylvania.osm [here](pittsburgh_pennsylvania.osm).
 
-6) SQL file with code for creating SQLite database [here](create_db.sql).
+6) Schema of transformation schema.py [here](schema.py).
 
-7) Readme file [here](Readme.md).
+7) SQL file with code for creating SQLite database create db.sql [here](create_db.sql).
+
+8) Readme file Readme.md [here](Readme.md).
